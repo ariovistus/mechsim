@@ -54,7 +54,7 @@ def rpm_to_mps(rpm, radius):
 touchpad_height_m = inch_to_meter(4*12 + 10)
 g = 9.81 # m/s2
 
-def do_stuff(
+def run_sim(
         height_m, mass_kg, winch_radius_m, rope_radius_m, 
         motor, motor_count, gearing_ratio):
 
@@ -65,17 +65,21 @@ def do_stuff(
         meter_to_inch(height_m),
         kg_to_lbs(mass_kg),
     ))
+    print (" stall torque: %.2f in-lbs" % (Nm_to_in_lbs(motor.stall_at_40()) * gearing_ratio * motor_count))
     travel_distance = touchpad_height_m - height_m 
     travel_distance += inch_to_meter(4) # account for stretchy rope 
 
     dt = 0.1
     time = 0
+    time_fuse_burning = 0
+    time_til_fuse_burnt = 1
     radius = winch_radius_m + rope_radius_m
     velocity = 0
     abs_position_m = 0
     mod_position_m = 0
     torque = 0
     overtorque = False
+    print ("initial radius=%6.2f in" % meter_to_inch(radius))
     while True:
        torque = mass_kg * g * radius
        #print ('\t required torque: %6.2f Nm (%6.2f in-lbs)' % (torque, Nm_to_in_lbs(torque)))
@@ -84,6 +88,12 @@ def do_stuff(
            print ("insufficent torque to climb at radius %4.2f in!" % (meter_to_inch(radius)))
            overtorque = True
            break
+       if motor_torque > motor.stall_at_40():
+            time_fuse_burning += dt
+       if time_fuse_burning >= time_til_fuse_burnt:
+            print ("ya blew the 40A breaker!")
+            overtorque = True
+            break
        velocity_rpm = motor.speed_at_torque(motor_torque) / gearing_ratio
        #print ("v=%6.2f rpm" % (velocity_rpm,))
        velocity_mps = rpm_to_mps(velocity_rpm, radius)
@@ -111,33 +121,24 @@ def do_stuff(
 
     if not overtorque:
         print ("time to climb: %6.2f seconds" % time)
+        print (" final radius: %6.2f in" % meter_to_inch(radius))
 
 
-do_stuff(
-        inch_to_meter(10), 
-        lbs_to_kg(130), 
-        inch_to_meter(1), 
-        inch_to_meter(0.25), 
-        minicim, 1, 64)
+run_sim(
+        height_m=inch_to_meter(10), 
+        mass_kg=lbs_to_kg(130), 
+        winch_radius_m=inch_to_meter(1), 
+        rope_radius_m=inch_to_meter(0.25), 
+        motor=minicim, 
+        motor_count=1,
+        gearing_ratio=64)
 
-do_stuff(
-        inch_to_meter(10), 
-        lbs_to_kg(130), 
-        inch_to_meter(1), 
-        inch_to_meter(0.25), 
-        bag, 3, 54)
-
-do_stuff(
-        inch_to_meter(10), 
-        lbs_to_kg(130), 
-        inch_to_meter(1), 
-        inch_to_meter(0.25), 
-        bag, 2, 100)
-
-do_stuff(
-        inch_to_meter(10), 
-        lbs_to_kg(130), 
-        inch_to_meter(1), 
-        inch_to_meter(0.25), 
-        _775pro, 3, 30)
+run_sim(
+        height_m=inch_to_meter(10), 
+        mass_kg=lbs_to_kg(130), 
+        winch_radius_m=inch_to_meter(1), 
+        rope_radius_m=inch_to_meter(0.125), 
+        motor=minicim, 
+        motor_count=3,
+        gearing_ratio=12)
 

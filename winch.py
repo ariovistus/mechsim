@@ -68,7 +68,6 @@ def run_sim(
     ))
     print (" stall torque: %.2f in-lbs" % (Nm_to_in_lbs(motor.stall_at_40()) * gearing_ratio * motor_count))
     travel_distance = touchpad_height_m - height_m 
-    travel_distance += inch_to_meter(4) # account for stretchy rope 
 
     dt = 0.1
     time = 0
@@ -123,23 +122,15 @@ def run_sim(
     if not overtorque:
         print ("time to climb: %6.2f seconds" % time)
         print (" final radius: %6.2f in" % meter_to_inch(radius))
+        print (" rope eaten: %6.2f in" % meter_to_inch(abs_position_m + mod_position_m))
 
 
 run_sim(
-        height_m=inch_to_meter(10), 
+        height_m=inch_to_meter(12), 
         mass_kg=lbs_to_kg(130), 
-        winch_radius_m=inch_to_meter(1), 
-        rope_radius_m=inch_to_meter(0.25), 
+        winch_radius_m=inch_to_meter(0.57), 
+        rope_radius_m=inch_to_meter(0.00), 
         motor=minicim, 
         motor_count=1,
         gearing_ratio=64)
-
-run_sim(
-        height_m=inch_to_meter(10), 
-        mass_kg=lbs_to_kg(130), 
-        winch_radius_m=inch_to_meter(1), 
-        rope_radius_m=inch_to_meter(0.125), 
-        motor=minicim, 
-        motor_count=3,
-        gearing_ratio=12)
 

@@ -29,6 +29,7 @@ minicim = MotorParams("minicim", 1.4, 86., 6200.)
 bag = MotorParams("bag", 0.4, 41., 14000.)
 _775pro = MotorParams("775pro", 0.71, 134., 18730.)
 rs775 = MotorParams("rs775", 0.247, 22., 5700.)
+am9015 = MotorParams("am9015", 0.428, 63.8, 16000.)
 
 def Nm_to_in_lbs(nm):
     return  nm * 8.85

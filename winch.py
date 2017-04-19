@@ -66,7 +66,7 @@ def run_sim(
         meter_to_inch(height_m),
         kg_to_lbs(mass_kg),
     ))
-    print (" stall torque: %.2f in-lbs" % (Nm_to_in_lbs(motor.stall_at_40()) * gearing_ratio * motor_count))
+    print (" max torque at 40A: %.2f in-lbs" % (Nm_to_in_lbs(motor.stall_at_40()) * gearing_ratio * motor_count))
     travel_distance = touchpad_height_m - height_m 
 
     dt = 0.1
@@ -125,6 +125,7 @@ def run_sim(
         print (" rope eaten: %6.2f in" % meter_to_inch(abs_position_m + mod_position_m))
 
 
+# this is pretty close to post dcmp onyx
 run_sim(
         height_m=inch_to_meter(12), 
         mass_kg=lbs_to_kg(130), 

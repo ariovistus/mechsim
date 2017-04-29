@@ -11,9 +11,12 @@ class MotorParams:
         if self.stall_current < 40.:
             return self.stall_torque
 
-        k = self.stall_torque / self.stall_current
+        k = self.ktorque()
         torque_at_40 = k * 40.
         return torque_at_40
+
+    def ktorque(self):
+        return self.stall_torque / self.stall_current
 
     def torque_at_speed(self, invel_rpm):
         out_torque = self.stall_torque 
@@ -23,6 +26,9 @@ class MotorParams:
     def speed_at_torque(self, intorque_Nm):
         out_vel_rpm = (1 - intorque_Nm / self.stall_torque) * self.free_speed
         return out_vel_rpm 
+
+    def current_at_torque(self, intorque_Nm):
+        return intorque_Nm / self.ktorque()
 
 cim = MotorParams("cim", 2.41, 133., 5300.)
 minicim = MotorParams("minicim", 1.4, 86., 6200.)
@@ -57,7 +63,7 @@ g = 9.81 # m/s2
 
 def run_sim(
         height_m, mass_kg, winch_radius_m, rope_radius_m, 
-        motor, motor_count, gearing_ratio):
+        motor, motor_count, gearing_ratio, reporter=None):
 
     print ("%s%s, gearing ratio=%s, %s inches from ground, %s lbs." % (
         motor.name, 
@@ -67,6 +73,7 @@ def run_sim(
         kg_to_lbs(mass_kg),
     ))
     print (" max torque at 40A: %.2f in-lbs" % (Nm_to_in_lbs(motor.stall_at_40()) * gearing_ratio * motor_count))
+    print (" stall torque: %.2f in-lbs" % (Nm_to_in_lbs(motor.stall_torque) * gearing_ratio * motor_count))
     travel_distance = touchpad_height_m - height_m 
 
     dt = 0.1
@@ -81,42 +88,55 @@ def run_sim(
     overtorque = False
     print ("initial radius=%6.2f in" % meter_to_inch(radius))
     while True:
-       torque = mass_kg * g * radius
-       #print ('\t required torque: %6.2f Nm (%6.2f in-lbs)' % (torque, Nm_to_in_lbs(torque)))
-       motor_torque = torque / motor_count / gearing_ratio
-       if motor_torque > motor.stall_torque:
-           print ("insufficent torque to climb at radius %4.2f in!" % (meter_to_inch(radius)))
-           overtorque = True
-           break
-       if motor_torque > motor.stall_at_40():
+        torque = mass_kg * g * radius
+        #print ('\t required torque: %6.2f Nm (%6.2f in-lbs)' % (torque, Nm_to_in_lbs(torque)))
+        motor_torque = torque / motor_count / gearing_ratio
+        if motor_torque > motor.stall_torque:
+            print ("insufficent torque to climb at radius %4.2f in!" % (meter_to_inch(radius)))
+            overtorque = True
+            break
+        if motor_torque > motor.stall_at_40():
             time_fuse_burning += dt
-       if time_fuse_burning >= time_til_fuse_burnt:
+        if time_fuse_burning >= time_til_fuse_burnt:
             print ("ya blew the 40A breaker!")
             overtorque = True
             break
-       velocity_rpm = motor.speed_at_torque(motor_torque) / gearing_ratio
-       #print ("v=%6.2f rpm" % (velocity_rpm,))
-       velocity_mps = rpm_to_mps(velocity_rpm, radius)
-       mod_position_m += velocity_mps * dt
+        velocity_rpm = motor.speed_at_torque(motor_torque) / gearing_ratio
+        #print ("v=%6.2f rpm" % (velocity_rpm,))
+        velocity_mps = rpm_to_mps(velocity_rpm, radius)
+        mod_position_m += velocity_mps * dt
 
-       if mod_position_m >= circum(radius):
-           mod_position_m -= circum(radius)
-           abs_position_m += circum(radius)
-           radius += 2 * rope_radius_m
+        if mod_position_m >= circum(radius):
+            mod_position_m -= circum(radius)
+            abs_position_m += circum(radius)
+            radius += 2 * rope_radius_m
 
-       if abs_position_m + mod_position_m >= travel_distance:
+        if abs_position_m + mod_position_m >= travel_distance:
             break
 
-       stall40 = motor.stall_at_40() * gearing_ratio
-       """
-       print ('\tstall at 40: %6.2f Nm (%6.2f in-lbs)' % (
+        if reporter is not None:
+            reporter(
+                time=time, 
+                radius=radius, 
+                winch_torque=torque,
+                motor_torque=motor_torque,
+                motor_current=motor.current_at_torque(motor_torque),
+                motor_stall_torque=motor.stall_torque,
+                motor_max_torque=motor.stall_at_40(),
+                time_fuse_burning=time_fuse_burning,
+                velocity_rpm=velocity_rpm,
+                position=abs_position_m+mod_position_m
+                )
+        """
+        stall40 = motor.stall_at_40() * gearing_ratio
+        print ('\tstall at 40: %6.2f Nm (%6.2f in-lbs)' % (
            stall40,
            Nm_to_in_lbs(stall40),
            ))
         """
-       #print ("\tradius=%6.2f   velocity=%6.2f RPM  " % (meter_to_inch(radius), velocity_rpm))
-       time += dt
-       #break
+        #print ("\tradius=%6.2f   velocity=%6.2f RPM  " % (meter_to_inch(radius), velocity_rpm))
+        time += dt
+        #break
 
 
     if not overtorque:
@@ -126,12 +146,13 @@ def run_sim(
 
 
 # this is pretty close to post dcmp onyx
-run_sim(
-        height_m=inch_to_meter(12), 
-        mass_kg=lbs_to_kg(130), 
-        winch_radius_m=inch_to_meter(0.57), 
-        rope_radius_m=inch_to_meter(0.00), 
-        motor=minicim, 
-        motor_count=1,
-        gearing_ratio=64)
+if __name__ == '__main__':
+    run_sim(
+            height_m=inch_to_meter(12), 
+            mass_kg=lbs_to_kg(130), 
+            winch_radius_m=inch_to_meter(0.75), 
+            rope_radius_m=inch_to_meter(0.00), 
+            motor=minicim, 
+            motor_count=1,
+            gearing_ratio=64)
 

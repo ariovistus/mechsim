@@ -37,3 +37,6 @@ def rpm_to_mps(rpm, radius):
 
 def rpm_to_radps(rpm):
     return rpm * 2 * math.pi / 60.
+
+def radps_to_rpm(rpm):
+    return rpm / (2 * math.pi) * 60.

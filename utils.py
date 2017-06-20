@@ -3,6 +3,14 @@ import math
 g = 9.81 # m/s2
 
 
+def lbs_to_N(lbs):
+    return lbs * 4.448
+
+
+def N_to_lbs(n):
+    return n / 4.448
+
+
 def Nm_to_in_lbs(nm):
     return  nm * 8.85
 

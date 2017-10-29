@@ -6,7 +6,6 @@ from utils import (
     inch_to_meter,
     radps_to_rpm,
 )
-from pidcontroller import NoThreadingPIDController
 
 
 class ArmSimulation:
@@ -17,6 +16,8 @@ class ArmSimulation:
         self.end_mass_kg = kwargs.get('end_mass_kg', lbs_to_kg(5.0))
         self.arm_mass_kg = kwargs.get('arm_mass_kg', lbs_to_kg(2.0))
         self.arm_length_m = kwargs.get('arm_length_m', inch_to_meter(12.))
+        self.damping = kwargs.get('damping', 0.1) # kg/s
+        self.pid_sample_rate= kwargs.get('pid_sample_rate_s', 0.05)
         self.periodic = periodic
         self.periodic_period = 0.02 # called on 20 ms intervals
         self.motor_system = motor_system
@@ -33,19 +34,21 @@ class ArmSimulation:
         J_arm = self.arm_mass_kg * self.arm_length_m ** 2 / 3.
         J_end = self.end_mass_kg * self.arm_length_m ** 2
         moment_of_inertia = J_arm + J_end
-        return (motor_torque - gravity_torque) / moment_of_inertia
+        damping_torque = self.damping * self.rot_v
+        return (motor_torque - gravity_torque - damping_torque) / moment_of_inertia
 
-    def run_sim(self, timeout=10., sample_rate=None, pid_sample_rate=0.05):
+    def run_sim(self, timeout=10., sample_rate=None):
         if sample_rate is None:
             sample_rate = self.dt_s
         state = RobotState()
-        dt = self.dt_s
-        t = 0.
-        t_last_periodic = 0.
-        t_last_measurement = 0.
-        t_last_pid = 0.
-        v = 0.
-        theta = self.starting_position_rad
+        dt = self.dt_s # time delta (s)
+        t = 0. # time (s)
+        t_last_periodic = 0. # time of last periodic call (s)
+        t_last_measurement = 0. # time of last data log (s)
+        t_last_pid = 0. # time of last pid calculation (s)
+        v = 0. # rotational velocity (rad/s)
+        self.rot_v = v # ditto
+        theta = self.starting_position_rad # position (rad)
         def make_buffer():
             return numpy.empty(shape=(int(timeout / sample_rate)+1,),dtype='float')
         ts = make_buffer()
@@ -59,7 +62,8 @@ class ArmSimulation:
             return theta
         def pid_output(v):
             state.voltage_p = v
-        state.pid = NoThreadingPIDController(Kp = 1.0, Ki = 0.3, Kd = 0.4, source = pid_source, output = pid_output)
+        state.pid_source = pid_source
+        state.pid_output = pid_output
         self.init(state)
         def log():
             nonlocal i, t, a, v, theta, state
@@ -69,11 +73,12 @@ class ArmSimulation:
             thetas[i] = theta
             voltages[i] = state.voltage_p
             i += 1
-        a = self.calc_acceleration(state)
+        a = self.calc_acceleration(state) # acceleration (rad/s^2)
         log()
 
         while t < timeout:
             v += a * dt
+            self.rot_v = v
             theta += v * dt
             t += dt
             a = self.calc_acceleration(state)
@@ -83,8 +88,10 @@ class ArmSimulation:
                 self.periodic(state)
             if t - t_last_measurement > sample_rate:
                 log()
-            if t - t_last_pid > pid_sample_rate:
+                t_last_measurement = t
+            if t - t_last_pid > self.pid_sample_rate and state.pid is not None:
                 state.pid._calculate()
+                t_last_pid = t
 
         return ts, a_s, vs, thetas, voltages
 
@@ -94,6 +101,8 @@ class RobotState:
         self.pid = None
         self._update(0.0, 0.0, 0.0)
         self._voltage_p = 0.0
+        self.pid_source = None
+        self.pid_output = None
 
     def _update(self, t, v, theta):
         self.theta_rad = theta

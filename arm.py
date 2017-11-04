@@ -1,6 +1,6 @@
 import math 
 import numpy
-from utils import (
+from frc3223_azurite.conversions import (
     g, 
     lbs_to_kg, 
     inch_to_meter,
@@ -23,9 +23,14 @@ class ArmSimulation:
         self.motor_system = motor_system
         self.init = kwargs.get('init', lambda *args, **kwargs: None)
 
+        self.ts = None
+        self.a_s = None
+        self.vs = None
+        self.thetas = None
+        self.voltages = None
+
     def calc_acceleration(self, state):
-        multiplier = state.voltage_p * self.nominal_voltage / 12.
-        motor_torque = self.motor_system.torque_at_speed(state.velocity_rpm) * multiplier
+        motor_torque = self.motor_system.torque_at_speed_and_voltage(state.velocity_radps, state.voltage_p * self.nominal_voltage)
         gravity_torque = (
             self.end_mass_kg * g * self.arm_length_m * math.cos(state.theta_rad) +
             self.arm_mass_kg * g * self.arm_length_m / 2. * math.cos(state.theta_rad)
@@ -46,18 +51,17 @@ class ArmSimulation:
         t_last_periodic = 0. # time of last periodic call (s)
         t_last_measurement = 0. # time of last data log (s)
         t_last_pid = 0. # time of last pid calculation (s)
-        v = 0. # rotational velocity (rad/s)
-        self.rot_v = v # ditto
+        self.rot_v = 0. # rotational velocity (rad/s)
         theta = self.starting_position_rad # position (rad)
         def make_buffer():
             return numpy.empty(shape=(int(timeout / sample_rate)+1,),dtype='float')
-        ts = make_buffer()
-        a_s = make_buffer()
-        vs = make_buffer()
-        thetas = make_buffer()
-        voltages = make_buffer()
+        self.ts = make_buffer()
+        self.a_s = make_buffer()
+        self.vs = make_buffer()
+        self.thetas = make_buffer()
+        self.voltages = make_buffer()
         i = 0
-        state._update(t, v, theta)
+        state._update(t, self.rot_v, theta)
         def pid_source():
             return theta
         def pid_output(v):
@@ -66,23 +70,22 @@ class ArmSimulation:
         state.pid_output = pid_output
         self.init(state)
         def log():
-            nonlocal i, t, a, v, theta, state
-            ts[i] = t
-            a_s[i] = a
-            vs[i] = v
-            thetas[i] = theta
-            voltages[i] = state.voltage_p
+            nonlocal i, t, a, theta, state
+            self.ts[i] = t
+            self.a_s[i] = a
+            self.vs[i] = self.rot_v
+            self.thetas[i] = theta
+            self.voltages[i] = state.voltage_p
             i += 1
         a = self.calc_acceleration(state) # acceleration (rad/s^2)
         log()
 
         while t < timeout:
-            v += a * dt
-            self.rot_v = v
-            theta += v * dt
+            self.rot_v += a * dt
+            theta += self.rot_v * dt
             t += dt
             a = self.calc_acceleration(state)
-            state._update(t, v, theta)
+            state._update(t, self.rot_v, theta)
             if t - t_last_periodic > self.periodic_period:
                 t_last_periodic = t
                 self.periodic(state)
@@ -93,7 +96,11 @@ class ArmSimulation:
                 state.pid._calculate()
                 t_last_pid = t
 
-        return ts, a_s, vs, thetas, voltages
+        self.ts = self.ts[:i]
+        self.a_s = self.a_s[:i]
+        self.vs = self.vs[:i]
+        self.thetas = self.thetas[:i]
+        self.voltages = self.voltages[:i]
 
 
 class RobotState:
@@ -125,7 +132,7 @@ class RobotState:
 
 
 if __name__ == '__main__':
-    from motors import *
+    from frc3223_azurite.motors import *
 
     def init(state):
         state.voltage_p = 1.0
@@ -146,7 +153,7 @@ if __name__ == '__main__':
             voltage = 0.4
         state.voltage_p = voltage
 
-    ts, a_s, vs, thetas, voltages = ArmSimulation(
+    ArmSimulation(
         dt_s=0.0001,
         starting_position_rad=math.radians(0),
         end_mass_kg=lbs_to_kg(5.0),

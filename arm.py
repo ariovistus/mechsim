@@ -1,4 +1,5 @@
 import math 
+import wpilib
 import numpy
 from frc3223_azurite.conversions import (
     g, 
@@ -42,77 +43,81 @@ class ArmSimulation:
         damping_torque = self.damping * self.rot_v
         return (motor_torque - gravity_torque - damping_torque) / moment_of_inertia
 
+    def log(self, state):
+        self.ts[self.i] = state.time_from_start_s
+        self.a_s[self.i] = state.acceleration_radps2
+        self.vs[self.i] = self.rot_v
+        self.thetas[self.i] = state.theta_rad
+        self.voltages[self.i] = state.voltage_p
+        self.i += 1
+
     def run_sim(self, timeout=10., sample_rate=None):
         if sample_rate is None:
             sample_rate = self.dt_s
-        state = RobotState()
-        dt = self.dt_s # time delta (s)
-        t = 0. # time (s)
-        t_last_periodic = 0. # time of last periodic call (s)
-        t_last_measurement = 0. # time of last data log (s)
-        t_last_pid = 0. # time of last pid calculation (s)
-        self.rot_v = 0. # rotational velocity (rad/s)
-        theta = self.starting_position_rad # position (rad)
-        def make_buffer():
-            return numpy.empty(shape=(int(timeout / sample_rate)+1,),dtype='float')
-        self.ts = make_buffer()
-        self.a_s = make_buffer()
-        self.vs = make_buffer()
-        self.thetas = make_buffer()
-        self.voltages = make_buffer()
-        i = 0
-        state._update(t, self.rot_v, theta)
-        def pid_source():
-            return theta
-        def pid_output(v):
-            state.voltage_p = v
-        state.pid_source = pid_source
-        state.pid_output = pid_output
-        self.init(state)
-        def log():
-            nonlocal i, t, a, theta, state
-            self.ts[i] = t
-            self.a_s[i] = a
-            self.vs[i] = self.rot_v
-            self.thetas[i] = theta
-            self.voltages[i] = state.voltage_p
-            i += 1
-        a = self.calc_acceleration(state) # acceleration (rad/s^2)
-        log()
+        with RobotState() as state:
+            dt = self.dt_s # time delta (s)
+            t = 0. # time (s)
+            t_last_periodic = 0. # time of last periodic call (s)
+            t_last_measurement = 0. # time of last data log (s)
+            t_last_pid = 0. # time of last pid calculation (s)
+            self.rot_v = 0. # rotational velocity (rad/s)
+            theta = self.starting_position_rad # position (rad)
+            def make_buffer():
+                return numpy.empty(shape=(int(timeout / sample_rate)+1,),dtype='float')
+            self.ts = make_buffer()
+            self.a_s = make_buffer()
+            self.vs = make_buffer()
+            self.thetas = make_buffer()
+            self.voltages = make_buffer()
+            self.i = 0
+            state._update(t, 0.0, self.rot_v, theta)
+            self.init(state)
+            a = self.calc_acceleration(state) # acceleration (rad/s^2)
+            state._update(t, a, self.rot_v, theta)
+            self.log(state)
 
-        while t < timeout:
-            self.rot_v += a * dt
-            theta += self.rot_v * dt
-            t += dt
-            a = self.calc_acceleration(state)
-            state._update(t, self.rot_v, theta)
-            if t - t_last_periodic > self.periodic_period:
-                t_last_periodic = t
-                self.periodic(state)
-            if t - t_last_measurement > sample_rate:
-                log()
-                t_last_measurement = t
-            if t - t_last_pid > self.pid_sample_rate and state.pid is not None:
-                state.pid._calculate()
-                t_last_pid = t
+            while t < timeout and not state.stop:
+                self.rot_v += a * dt
+                theta += self.rot_v * dt
+                t += dt
+                a = self.calc_acceleration(state)
+                state._update(t, a, self.rot_v, theta)
+                if t - t_last_periodic > self.periodic_period:
+                    t_last_periodic = t
+                    self.periodic(state)
+                if t - t_last_measurement > sample_rate:
+                    self.log(state)
+                    t_last_measurement = t
+                if t - t_last_pid > self.pid_sample_rate and state.pid is not None:
+                    state.pid._calculate()
+                    t_last_pid = t
 
-        self.ts = self.ts[:i]
-        self.a_s = self.a_s[:i]
-        self.vs = self.vs[:i]
-        self.thetas = self.thetas[:i]
-        self.voltages = self.voltages[:i]
+            self.ts = self.ts[:self.i]
+            self.a_s = self.a_s[:self.i]
+            self.vs = self.vs[:self.i]
+            self.thetas = self.thetas[:self.i]
+            self.voltages = self.voltages[:self.i]
 
 
 class RobotState:
     def __init__(self):
         self.pid = None
-        self._update(0.0, 0.0, 0.0)
+        self._update(0.0, 0.0, 0.0, 0.0)
         self._voltage_p = 0.0
-        self.pid_source = None
-        self.pid_output = None
+        self.motor = None
+        self.stop = False
 
-    def _update(self, t, v, theta):
+    def __enter__(self):
+        self.motor = SimVictor(self)
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.motor.free()
+        self.motor = None
+
+    def _update(self, t, a, v, theta):
         self.theta_rad = theta
+        self.acceleration_radps2 = a
         self.velocity_radps = v
         self.time_from_start_s = t
         if self.pid:
@@ -123,12 +128,31 @@ class RobotState:
         return radps_to_rpm(self.velocity_radps)
 
     def set_voltage_p(self, voltage):
+        '''
+        :type voltage: float
+        '''
         self._voltage_p = max(-1.0, min(1.0, voltage))
     
     def get_voltage_p(self):
         return self._voltage_p
 
     voltage_p = property(get_voltage_p, set_voltage_p)
+
+
+class SimVictor(wpilib.Victor):
+    def __init__(self, state):
+        '''
+        :type state: RobotState
+        '''
+        super().__init__(1)
+        self.state = state
+
+    def set(self, voltage_p):
+        '''
+        :type voltage_p: float
+        '''
+        super().set(voltage_p)
+        self.state.voltage_p = voltage_p
 
 
 if __name__ == '__main__':

@@ -1,6 +1,9 @@
 import math 
 import wpilib
 import numpy
+import hal
+from hal_impl.sim_hooks import SimHooks as BaseSimHooks
+import hal_impl.functions
 from frc3223_azurite.conversions import (
     g, 
     lbs_to_kg, 
@@ -29,9 +32,11 @@ class ArmSimulation:
         self.vs = None
         self.thetas = None
         self.voltages = None
+        self.currents = None
 
     def calc_acceleration(self, state):
-        motor_torque = self.motor_system.torque_at_speed_and_voltage(state.velocity_radps, state.voltage_p * self.nominal_voltage)
+        torque = self.motor_system.torque_at_speed_and_voltage(state.velocity_radps, state.voltage_p * self.nominal_voltage)
+        state.motor_current = self.motor_system.motor_current_at_torque(torque)
         gravity_torque = (
             self.end_mass_kg * g * self.arm_length_m * math.cos(state.theta_rad) +
             self.arm_mass_kg * g * self.arm_length_m / 2. * math.cos(state.theta_rad)
@@ -41,7 +46,17 @@ class ArmSimulation:
         J_end = self.end_mass_kg * self.arm_length_m ** 2
         moment_of_inertia = J_arm + J_end
         damping_torque = self.damping * self.rot_v
-        return (motor_torque - gravity_torque - damping_torque) / moment_of_inertia
+        return (torque - gravity_torque - damping_torque) / moment_of_inertia
+
+    def init_log_buffers(self, max_size):
+        def make_buffer():
+            return numpy.empty(shape=(max_size,),dtype='float')
+        self.ts = make_buffer()
+        self.a_s = make_buffer()
+        self.vs = make_buffer()
+        self.thetas = make_buffer()
+        self.voltages = make_buffer()
+        self.currents = make_buffer()
 
     def log(self, state):
         self.ts[self.i] = state.time_from_start_s
@@ -49,6 +64,7 @@ class ArmSimulation:
         self.vs[self.i] = self.rot_v
         self.thetas[self.i] = state.theta_rad
         self.voltages[self.i] = state.voltage_p
+        self.currents[self.i] = state.motor_current
         self.i += 1
 
     def run_sim(self, timeout=10., sample_rate=None):
@@ -62,13 +78,7 @@ class ArmSimulation:
             t_last_pid = 0. # time of last pid calculation (s)
             self.rot_v = 0. # rotational velocity (rad/s)
             theta = self.starting_position_rad # position (rad)
-            def make_buffer():
-                return numpy.empty(shape=(int(timeout / sample_rate)+1,),dtype='float')
-            self.ts = make_buffer()
-            self.a_s = make_buffer()
-            self.vs = make_buffer()
-            self.thetas = make_buffer()
-            self.voltages = make_buffer()
+            self.init_log_buffers(int(timeout / sample_rate) + 1)
             self.i = 0
             state._update(t, 0.0, self.rot_v, theta)
             self.init(state)
@@ -92,22 +102,27 @@ class ArmSimulation:
                     state.pid._calculate()
                     t_last_pid = t
 
-            self.ts = self.ts[:self.i]
-            self.a_s = self.a_s[:self.i]
-            self.vs = self.vs[:self.i]
-            self.thetas = self.thetas[:self.i]
-            self.voltages = self.voltages[:self.i]
+            self.trim_buffers()
+
+    def trim_buffers(self):
+        buffers = ['ts', 'a_s', 'vs', 'thetas', 'voltages', 'currents']
+        for buf in buffers:
+            arr = getattr(self,buf)
+            setattr(self, buf, arr[:self.i])
 
 
 class RobotState:
     def __init__(self):
         self.pid = None
+        self.motor_current = 0.0
         self._update(0.0, 0.0, 0.0, 0.0)
         self._voltage_p = 0.0
         self.motor = None
         self.stop = False
 
     def __enter__(self):
+        hal_impl.functions.hooks = SimHooks(self)
+        hal_impl.functions.reset_hal()
         self.motor = SimVictor(self)
         return self
 
@@ -153,6 +168,22 @@ class SimVictor(wpilib.Victor):
         '''
         super().set(voltage_p)
         self.state.voltage_p = voltage_p
+
+class SimHooks(BaseSimHooks):
+    def __init__(self, state):
+        '''
+        :type state: RobotState
+        '''
+        super().__init__()
+        self.state = state
+
+    def getTime(self):
+        return self.state.time_from_start_s
+
+    def getFPGATime(self):
+        from hal_impl.data import hal_data
+        # post commit a518 this doesn't need to be implemented
+        return int((self.getTime() - hal_data['time']['program_start']) * 1000000)
 
 
 if __name__ == '__main__':

@@ -4,19 +4,19 @@ from frc3223_azurite import motors
 from frc3223_azurite.inertials import solid_cylinder
 
 class DriveSim:
-    def __init__(self, motor_system, **kwargs):
+    def __init__(self, gearbox, **kwargs):
         self.dt_s = kwargs.get('dt_s', 0.0001)
         self.robot_mass_kg = kwargs.get('robot_mass_kg', lbs_to_kg(150))
-        self.wheel_radius_m = kwargs.get('wheel_radius_m', inch_to_meter(12.))
+        self.wheel_radius_m = kwargs.get('wheel_radius_m', inch_to_meter(3.))
         self.wheel_inertial = kwargs.get('wheel_inertial', solid_cylinder(lbs_to_kg(0.3), self.wheel_radius_m))
-        self.gearbox_efficiency = kwargs.get('gearbox_efficiency', 0.9)
+        self.gearbox_efficiency = kwargs.get('gearbox_efficiency', 0.55)
         self.u_static = kwargs.get('u_static', 0.9)
         self.u_kinetic = kwargs.get('u_kinetic', 0.7)
-        self.rolling0 = kwargs.get('rolling0', 0)
+        self.rolling0 = kwargs.get('rolling0', 90)
         self.rolling1 = kwargs.get('rolling1', 0)
+        self.gearbox_count = kwargs.get('gearbox_count', 2)
         assert 0 <= self.gearbox_efficiency <= 1
-        # assume 1 motor system per wheel
-        self.motor_system = motor_system
+        self.gearbox = gearbox
 
         self.ts = None
         self.a_s = None
@@ -65,9 +65,9 @@ class DriveSim:
         linear_force = 0 # N
         current = 0.0
         slip = 0
-        wheel_torque = None # Nm
-        wheel_torque = self.gearbox_efficiency * self.motor_system.torque_at_speed(vrot)
-        wheel_normal_force = self.robot_mass_kg * g / 4
+        gbox_torque = None # Nm
+        gbox_torque = self.gearbox_efficiency * self.gearbox.torque_at_speed(vrot)
+        gbox_normal_force = self.robot_mass_kg * g / self.gearbox_count
 
         self.i = 0
         state = RobotState()
@@ -77,21 +77,21 @@ class DriveSim:
 
 
         while self.i < len(self.ts):
-            wheel_on_ground_force = wheel_torque / self.wheel_radius_m
-            if wheel_on_ground_force > self.u_static * wheel_normal_force:
+            gbox_on_ground_force = gbox_torque / self.wheel_radius_m
+            if gbox_on_ground_force > self.u_static * gbox_normal_force:
                 slip = 1
             elif slip and vrot * self.wheel_radius_m < v:
                 slip = 0
                 
             if slip:
-                ground_on_wheel_force = self.u_kinetic * wheel_normal_force
-                arot = (wheel_torque - ground_on_wheel_force * self.wheel_radius_m) / self.wheel_inertial
+                ground_on_gbox_force = self.u_kinetic * gbox_normal_force
+                arot = (gbox_torque - ground_on_gbox_force * self.wheel_radius_m) / self.wheel_inertial
             else:
                 # no slip
-                ground_on_wheel_force = min(wheel_on_ground_force, self.u_static * wheel_normal_force)
+                ground_on_gbox_force = min(gbox_on_ground_force, self.u_static * gbox_normal_force)
             rolling_resistance = self.rolling0 + self.rolling1 * v
 
-            linear_force = ground_on_wheel_force * 4 - rolling_resistance
+            linear_force = max(0, ground_on_gbox_force * self.gearbox_count - rolling_resistance)
 
             a = linear_force / self.robot_mass_kg
 
@@ -103,7 +103,7 @@ class DriveSim:
             t += self.dt_s
             state._update(t, a, arot, v, vrot, voltage, current, linear_force, slip)
             self.log(state)
-            wheel_torque = self.gearbox_efficiency * self.motor_system.torque_at_speed(vrot)
+            gbox_torque = self.gearbox_efficiency * self.gearbox.torque_at_speed(vrot)
 
 
 class RobotState:
@@ -140,6 +140,6 @@ class RobotState:
         
 
 if __name__ == '__main__':
-    sim = DriveSim(motor_system=motors.MotorSystem(motor=motors.cim, motor_count=1, gearing_ratio=10))
+    sim = DriveSim(gearbox=motors.MotorSystem(motor=motors.cim, motor_count=1, gearing_ratio=10))
     sim.run_sim()
 

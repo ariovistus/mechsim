@@ -5,21 +5,22 @@ from frc3223_azurite.inertials import solid_cylinder
 
 class DriveSim:
     def __init__(self, gearbox, **kwargs):
-        self.dt_s = kwargs.get('dt_s', 0.0001)
-        self.robot_mass_kg = kwargs.get('robot_mass_kg', lbs_to_kg(150))
-        self.wheel_radius_m = kwargs.get('wheel_radius_m', inch_to_meter(3.))
-        self.wheel_inertial = kwargs.get('wheel_inertial', solid_cylinder(lbs_to_kg(0.3), self.wheel_radius_m))
-        self.gearbox_efficiency = kwargs.get('gearbox_efficiency', 0.65)
-        self.battery_resistance_ohms = kwargs.get('battery_resistance_ohms', 0.015)
-        self.fuse_resistance_ohms = kwargs.get('fuse_resistance_ohms', 0.002)
-        self.battery_current_max = kwargs.get('battery_current_max', 250)
-        self.u_static = kwargs.get('u_static', 0.9)
-        self.u_kinetic = kwargs.get('u_kinetic', 0.7)
-        self.rolling0 = kwargs.get('rolling0', 30)
-        self.rolling1 = kwargs.get('rolling1', 5)
-        self.voltage_battery = kwargs.get('voltage_battery', 12.7)
-        self.gearbox_count = kwargs.get('gearbox_count', 2)
+        self.dt_s = kwargs.pop('dt_s', 0.0001)
+        self.robot_mass_kg = kwargs.pop('robot_mass_kg', lbs_to_kg(150))
+        self.wheel_radius_m = kwargs.pop('wheel_radius_m', inch_to_meter(3.))
+        self.wheel_inertial = kwargs.pop('wheel_inertial', solid_cylinder(lbs_to_kg(0.3), self.wheel_radius_m))
+        self.gearbox_efficiency = kwargs.pop('gearbox_efficiency', 0.65)
+        self.battery_resistance_ohms = kwargs.pop('battery_resistance_ohms', 0.015)
+        self.fuse_resistance_ohms = kwargs.pop('fuse_resistance_ohms', 0.002)
+        self.battery_current_max = kwargs.pop('battery_current_max', 250)
+        self.u_static = kwargs.pop('u_static', 0.9)
+        self.u_kinetic = kwargs.pop('u_kinetic', 0.7)
+        self.rolling0 = kwargs.pop('rolling0', 30)
+        self.rolling1 = kwargs.pop('rolling1', 5)
+        self.battery_voltage = kwargs.pop('battery_voltage', 12.7)
+        self.gearbox_count = kwargs.pop('gearbox_count', 2)
         assert 0 <= self.gearbox_efficiency <= 1
+        assert len(kwargs) == 0, 'Unknown parameters: ' + ', '.join(kwargs.keys())
         self.gearbox = gearbox
 
         self.ts = None
@@ -65,16 +66,16 @@ class DriveSim:
         a = 0.0 # m/s^2
         vrot = 0.0 # rad/s
         arot = 0.0 # rad/s^2
-        voltage = self.voltage_battery
+        voltage = self.battery_voltage
         linear_force = 0 # N
         current = 0.0
         slip = 0
         gbox_torque = None # Nm
-        starter_torque = self.gearbox_efficiency * \
-            self.gearbox.torque_at_speed_and_voltage(vrot, voltage)
-        voltage = self.voltage_at_motor(starter_torque)
+        
+        current = self.current_at_motor(vrot)
         gbox_torque = self.gearbox_efficiency * \
-            self.gearbox.torque_at_speed_and_voltage(vrot, voltage)
+            self.gearbox.torque_at_motor_current(current)
+        voltage = self.voltage_at_motor(current)
         gbox_normal_force = self.robot_mass_kg * g / self.gearbox_count
 
         self.i = 0
@@ -109,23 +110,31 @@ class DriveSim:
             else:
                 vrot = v / self.wheel_radius_m
             t += self.dt_s
-            voltage = self.voltage_at_motor(gbox_torque)
             state._update(t, a, arot, v, vrot, voltage, current, linear_force, slip)
             self.log(state)
+            current = self.current_at_motor(vrot)
             gbox_torque = self.gearbox_efficiency * \
-                self.gearbox.torque_at_speed_and_voltage(vrot, voltage)
+                self.gearbox.torque_at_motor_current(current)
+            voltage = self.voltage_at_motor(current)
 
-    def voltage_at_motor(self, gbox_torque):
+    def current_at_motor(self, vrot):
+        backemf = self.gearbox.motor_back_emf(vrot)
+        voltage = self.battery_voltage - backemf
+        motor_count = self.gearbox_count * self.gearbox.motor_count
         r1 = self.battery_resistance_ohms
         r2 = self.fuse_resistance_ohms
-        vb = self.voltage_battery
+        rm = self.gearbox.motor.resistance()
+        r = r1 * motor_count + r2 + rm
+
+        return voltage / r
+
+    def voltage_at_motor(self, motor_current):
+        r1 = self.battery_resistance_ohms
+        r2 = self.fuse_resistance_ohms
+        vb = self.battery_voltage
         motor_count = self.gearbox_count * self.gearbox.motor_count
-        gbox_torque2 = gbox_torque / self.gearbox_efficiency
-        motor_current = self.gearbox.motor_current_at_torque(gbox_torque2)
-        motor_current = min(motor_current, self.battery_current_max / motor_count)
-        result = vb - r1 * motor_count * motor_current - r2 * motor_current
-        if result < 0: return math.nan
-        return result
+
+        return vb - r1 * motor_count * motor_current - r2 * motor_current
 
 
 class RobotState:

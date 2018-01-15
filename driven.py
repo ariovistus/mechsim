@@ -12,7 +12,6 @@ class DriveSim:
         self.gearbox_efficiency = kwargs.pop('gearbox_efficiency', 0.65)
         self.battery_resistance_ohms = kwargs.pop('battery_resistance_ohms', 0.015)
         self.fuse_resistance_ohms = kwargs.pop('fuse_resistance_ohms', 0.002)
-        self.battery_current_max = kwargs.pop('battery_current_max', 250)
         self.u_static = kwargs.pop('u_static', 0.9)
         self.u_kinetic = kwargs.pop('u_kinetic', 0.7)
         self.rolling0 = kwargs.pop('rolling0', 30)
@@ -163,7 +162,7 @@ class RobotState:
         self.velocity_mps = v
         self.time_from_start_s = t
         self.linear_force = pushforce
-        self.current = current
+        self.motor_current = current
         self.voltage = voltage
         self.slip = slip
         if self.pid:

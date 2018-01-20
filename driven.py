@@ -25,6 +25,7 @@ class DriveSim:
         self.ts = None
         self.a_s = None
         self.vs = None
+        self.xs = None
         self.arots = None
         self.vrots = None
         self.voltages = None
@@ -38,6 +39,7 @@ class DriveSim:
         self.ts = make_buffer()
         self.a_s = make_buffer()
         self.vs = make_buffer()
+        self.xs = make_buffer()
         self.arots = make_buffer()
         self.vrots = make_buffer()
         self.voltages = make_buffer()
@@ -49,6 +51,7 @@ class DriveSim:
         self.ts[self.i] = state.time_from_start_s
         self.a_s[self.i] = state.acceleration_mps2
         self.vs[self.i] = state.velocity_mps
+        self.xs[self.i] = state.position_m
         self.arots[self.i] = state.acceleration_radps2
         self.vrots[self.i] = state.velocity_radps
         self.voltages[self.i] = state.voltage
@@ -63,6 +66,7 @@ class DriveSim:
         t = 0.0 # sec
         v = 0.0 # m/s
         a = 0.0 # m/s^2
+        x = 0.0 # m
         vrot = 0.0 # rad/s
         arot = 0.0 # rad/s^2
         voltage = self.battery_voltage
@@ -79,7 +83,7 @@ class DriveSim:
 
         self.i = 0
         state = RobotState()
-        state._update(t, a, arot, v, vrot, voltage, current, linear_force, slip)
+        state._update(t, a, arot, v, x, vrot, voltage, current, linear_force, slip)
         self.init_log_buffers(int(timeout_s / sample_rate) + 1)
         self.log(state)
 
@@ -104,12 +108,13 @@ class DriveSim:
             a = linear_force / self.robot_mass_kg
 
             v = v + a * self.dt_s
+            x = x + v * self.dt_s
             if slip:
                 vrot = vrot + arot * self.dt_s
             else:
                 vrot = v / self.wheel_radius_m
             t += self.dt_s
-            state._update(t, a, arot, v, vrot, voltage, current, linear_force, slip)
+            state._update(t, a, arot, v, x, vrot, voltage, current, linear_force, slip)
             self.log(state)
             current = self.current_at_motor(vrot)
             gbox_torque = self.gearbox_efficiency * \
@@ -140,7 +145,7 @@ class RobotState:
     def __init__(self):
         self.pid = None
         self.motor_current = 0.0
-        self._update(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
+        self._update(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0)
         self._voltage_p = 0.0
         self.motor = None
         self.stop = False
@@ -155,11 +160,12 @@ class RobotState:
         self.motor.free()
         self.motor = None
 
-    def _update(self, t, a, arot, v, vrot, voltage, current, pushforce, slip):
+    def _update(self, t, a, arot, v, x, vrot, voltage, current, pushforce, slip):
         self.acceleration_radps2 = arot
         self.acceleration_mps2 = a
         self.velocity_radps = vrot
         self.velocity_mps = v
+        self.position_m = x
         self.time_from_start_s = t
         self.linear_force = pushforce
         self.motor_current = current

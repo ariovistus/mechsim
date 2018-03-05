@@ -29,9 +29,11 @@ class ElevatorSimulation:
         self.hardstop_spring_constant=kwargs.pop('hardstop_spring_constant', lbs_to_N(200) / 0.01)
         self.gearbox_efficiency = kwargs.pop('gearbox_efficiency', 0.65)
         self.battery_resistance_ohms = kwargs.pop('battery_resistance_ohms', 0.015)
+        self.pulls_down = kwargs.pop('pulls_down', True)
         self.battery_voltage = kwargs.pop('battery_voltage', 12.7)
         self.fuse_resistance_ohms = kwargs.pop('fuse_resistance_ohms', 0.002)
         self.pid_sample_rate= kwargs.pop('pid_sample_rate_s', 0.05)
+        self.pid_periodic = kwargs.pop('pid_periodic', lambda state: 1)
         self.init = kwargs.pop('init', lambda *args, **kwargs: None)
         assert 0 <= self.gearbox_efficiency <= 1
         assert len(kwargs) == 0, 'Unknown parameters: ' + ', '.join(kwargs.keys())
@@ -60,6 +62,8 @@ class ElevatorSimulation:
     def calc_lift_acceleration(self, state, current):
         torque = self.gearbox_efficiency * self.motor_system.torque_at_motor_current(current)
         motor_force = torque / self.sprocket_radius_m
+        if not self.pulls_down and motor_force < 0:
+            motor_force = 0
         gravity_force = self.stages_gravity()
         cw = self.counterweighting()
         
@@ -71,7 +75,7 @@ class ElevatorSimulation:
             force -= (state.x - self.max_height_m) * self.hardstop_spring_constant
 
         #print ('force:' , force)
-        a = force / self.stage1_mass_kg
+        a = force / (gravity_force / g)
         return a
 
     def calc_climb_acceleration(self, state, current):
@@ -169,8 +173,8 @@ class ElevatorSimulation:
                 if t - t_last_measurement > sample_rate:
                     self.log(state)
                     t_last_measurement = t
-                if t - t_last_pid > self.pid_sample_rate and state.pid is not None:
-                    state.pid._calculate()
+                if t - t_last_pid > self.pid_sample_rate:
+                    self.pid_periodic(state)
                     t_last_pid = t
 
             self.trim_buffers()
@@ -210,8 +214,8 @@ class ElevatorSimulation:
                 if t - t_last_measurement > sample_rate:
                     self.log(state)
                     t_last_measurement = t
-                if t - t_last_pid > self.pid_sample_rate and state.pid is not None:
-                    state.pid._calculate()
+                if t - t_last_pid > self.pid_sample_rate:
+                    state.pid_periodic()
                     t_last_pid = t
 
             self.trim_buffers()

@@ -112,6 +112,22 @@ class ArmSimulation:
             arr = getattr(self,buf)
             setattr(self, buf, arr[:self.i])
 
+    def write_csv(self, nom):
+        import csv
+        with open(nom, 'w') as f:
+            writer = csv.writer(f)
+
+            writer.writerow([
+                'time', 'accel (rad/s2)','velocity (rad/s)', 
+                'position (rad)', 'current (A)',
+                'motor percent voltage'])
+
+            for i in range(len(self.ts)):
+                writer.writerow([
+                    self.ts[i], self.a_s[i], self.vs[i],
+                    self.thetas[i], self.currents[i], self.voltages[i],
+                    ])
+
 
 class RobotState:
     def __init__(self):

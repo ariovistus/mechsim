@@ -25,6 +25,8 @@ class ElevatorSimulation:
         self.stage1_counterweighting_n = kwargs.pop('stage1_counterweighting_n', lbs_to_N(0.0))
         self.stage2_counterweighting_n = kwargs.pop('stage2_counterweighting_n', lbs_to_N(0.0))
         self.max_height_m = kwargs.pop('max_height_m', 2.0)
+        # assuming kinetic and max static are same
+        self.friction_force = kwargs.pop('friction_force_N', 0)
         self.sprocket_radius_m = kwargs.pop('sprocket_radius_m', inch_to_meter(2.0))
         self.hardstop_spring_constant=kwargs.pop('hardstop_spring_constant', lbs_to_N(200) / 0.01)
         self.gearbox_efficiency = kwargs.pop('gearbox_efficiency', 0.65)
@@ -73,6 +75,20 @@ class ElevatorSimulation:
             force += (0-state.x) * self.hardstop_spring_constant
         elif state.x > self.max_height_m:
             force -= (state.x - self.max_height_m) * self.hardstop_spring_constant
+        else:
+            # include friction here
+            if state.velocity_mps > 0:
+                force -= self.friction_force
+            elif state.velocity_mps < 0:
+                force += self.friction_force
+            elif abs(force) < self.friction_force:
+                force = 0
+            elif force > 0:
+                force -= self.friction_force
+            elif force < 0:
+                force += self.friction_force
+
+
 
         #print ('force:' , force)
         a = force / (gravity_force / g)
@@ -226,6 +242,23 @@ class ElevatorSimulation:
             arr = getattr(self,buf)
             setattr(self, buf, arr[:self.i])
 
+    def write_csv(self, nom):
+        import csv
+        with open(nom, 'w') as f:
+            writer = csv.writer(f)
+
+            writer.writerow([
+                'time', 'accel (m/s2)','velocity (m/s)', 
+                'position (m)', 'current (A)', 'battery voltage (V)', 
+                'motor percent voltage'])
+
+            for i in range(len(self.ts)):
+                writer.writerow([
+                    self.ts[i], self.a_s[i], self.vs[i],
+                    self.xs[i], self.currents[i], self.voltages[i],
+                    self.voltageps[i]
+                    ])
+
 
 class RobotState:
     def __init__(self):
@@ -304,18 +337,35 @@ class SimHooks(BaseSimHooks):
         return int((self.getTime() - hal_data['time']['program_start']) * 1000000)
 
 
+
 if __name__ == '__main__':
     from frc3223_azurite.motors import *
 
     def init(state):
-        state.voltage_p = 1.0
+        state.voltage_p = 0.0
         
     def periodic(state):
-        state.voltage_p = 0.5
+        state.voltage_p = 1.0
 
-    ElevatorSimulation(
+    sim = ElevatorSimulation(
+        starting_position_m=inch_to_meter(0),
+        max_height_m=inch_to_meter(72),
+        sprocket_radius_m=inch_to_meter(2.12),
+        robot_mass_kg=lbs_to_kg(154),
+        stage1_mass_kg=lbs_to_kg(16.0),
+        stage2_mass_kg=lbs_to_kg(0.0),
+        stage3_mass_kg=lbs_to_kg(0.0),
+        stage1_counterweighting_n=lbs_to_N(.0),
+        stage2_counterweighting_n=lbs_to_N(0.0),
+        pulls_down = False,
+        init=init,
+        periodic=periodic,
+        pid_sample_rate_s=0.001,
+        gearbox_efficiency=0.85,
+        motor_system=MotorSystem(motor=bag, motor_count=4, gearing_ratio=50),
         dt_s=0.0001,
-        periodic = periodic,
-        init = init,
-        motor_system=MotorSystem(motor=am9015, motor_count=1, gearing_ratio=64),
-    ).run_lift_sim()
+    )
+
+    sim.run_lift_sim(timeout=4)
+
+    sim.write_csv("test.csv")

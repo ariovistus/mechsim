@@ -3,6 +3,7 @@ from wpilib import (
     PIDController,
 )
 from timer import Timer
+from wpilib import LinearDigitalFilter
 from wpilib.interfaces import PIDSource
 from wpilib._impl.utils import (
     match_arglist, 
@@ -30,9 +31,12 @@ class NoThreadingPIDController(PIDController):
         self.D = Kd  # factor for "derivative" control
         self.F = results.pop("Kf", 0.0)  # factor for feedforward term
         self.pidOutput = results.pop("output")
-        self.pidInput = results.pop("source")
+        self.origSource = results.pop("source")
         self.period = results.pop("period", self.kDefaultPeriod)
-        
+
+        self.filter = LinearDigitalFilter.movingAverage(self.origSource, 1)
+        self.pidInput = self.filter
+
         self.pidInput = PIDSource.from_obj_or_callable(self.pidInput)
         
         if hasattr(self.pidOutput, 'pidWrite'):
@@ -52,6 +56,7 @@ class NoThreadingPIDController(PIDController):
         self.error = 0.0
         self.result = 0.0
         self.mutex = WithStub()
+        self.pidWriteMutex = WithStub()
         self.setpointTimer = Timer()
         self.setpointTimer.start()
 

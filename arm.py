@@ -23,6 +23,8 @@ class ArmSimulation:
         self.damping = kwargs.pop('damping', 0.1) # kg/s
         self.pid_sample_rate= kwargs.pop('pid_sample_rate_s', 0.05)
         self.periodic = periodic
+        self.hardstop_spring_constant = kwargs.pop('hardstop_spring_constant', 0)
+        self.counterbalanced = kwargs.pop('counterbalanced', False)
         self.pid_periodic = kwargs.pop('pid_periodic', lambda state: 1)
         self.periodic_period = 0.02 # called on 20 ms intervals
         self.motor_system = motor_system
@@ -47,8 +49,14 @@ class ArmSimulation:
         J_arm = self.arm_mass_kg * self.arm_length_m ** 2 / 3.
         J_end = self.end_mass_kg * self.arm_length_m ** 2
         moment_of_inertia = J_arm + J_end
+        if self.counterbalanced:
+            moment_of_inertia *= 2
+            gravity_torque = 0
         damping_torque = self.damping * self.rot_v
-        return (torque - gravity_torque - damping_torque) / moment_of_inertia
+        hardstop_torque = 0
+        if state.theta_rad < 0:
+            hardstop_torque = -state.theta_rad * self.hardstop_spring_constant
+        return (torque - gravity_torque - damping_torque  + hardstop_torque) / moment_of_inertia
 
     def init_log_buffers(self, max_size):
         def make_buffer():

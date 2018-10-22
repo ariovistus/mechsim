@@ -22,42 +22,50 @@ class TrapezoidalProfile:
 
         self.current_a = 0
 
+        def inc():
+            nonlocal v, dt, a
+            if v + dt * a  > self.cruise_v:
+                self.current_a = (self.cruise_v - v) / dt
+                v = self.cruise_v
+            else:
+                v += dt * a
+                self.current_a = +a
+
+        def dec():
+            nonlocal v, dt, a
+            if v - dt * a  < -self.cruise_v:
+                self.current_a = (self.cruise_v - v) / dt
+                v = -self.cruise_v
+            else:
+                v -= dt * a
+                self.current_a = -a
+
         if abs(err) < okerr:
             if v > 0:
                 v -= min(v, dt * a)
             elif v < 0:
                 v -= max(v, -dt * a)
         elif okerr <= err < adist and v > 0:
-            v -= dt * a
-            self.current_a = -a
+            dec()
         elif okerr <= err < adist and v < 0:
-            v += dt * a
-            self.current_a = +a
+            inc()
         elif -okerr >= err > -adist and v < 0:
-            v += dt * a
-            self.current_a = +a
+            inc()
         elif -okerr >= err > -adist and v > 0:
-            v -= dt * a
-            self.current_a = -a
+            dec()
         elif err > adist and v >= 0:
             if v < self.cruise_v:
-                v += dt * a
-                self.current_a = +a
+                inc()
             elif v > self.cruise_v:
-                v -= dt * a
-                self.current_a = -a
+                dec()
         elif err < -adist and v <= 0:
             if v > -self.cruise_v:
-                v -= dt * a
-                self.current_a = -a
+                dec()
             elif v < -self.cruise_v:
-                v += dt * a
-                self.current_a = +a
+                inc()
         elif err > adist and v < 0:
-            v += dt * a
-            self.current_a = +a
+            inc()
         elif err < -adist and v > 0:
-            v -= dt * a
-            self.current_a = -a
+            dec()
 
         self.current_target_v = v

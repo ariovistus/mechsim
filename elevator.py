@@ -36,11 +36,11 @@ class ElevatorSimulation:
         self.fuse_resistance_ohms = kwargs.pop('fuse_resistance_ohms', 0.002)
         self.pid_sample_rate= kwargs.pop('pid_sample_rate_s', 0.05)
         self.pid_periodic = kwargs.pop('pid_periodic', lambda state: 1)
+        self.periodic_period = kwargs.pop('periodic_period', 0.02) # default on 20 ms intervals
         self.init = kwargs.pop('init', lambda *args, **kwargs: None)
         assert 0 <= self.gearbox_efficiency <= 1
         assert len(kwargs) == 0, 'Unknown parameters: ' + ', '.join(kwargs.keys())
         self.periodic = periodic
-        self.periodic_period = 0.02 # called on 20 ms intervals
         self.motor_system = motor_system
 
         self.ts = None

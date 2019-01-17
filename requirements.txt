@@ -1,5 +1,10 @@
-ipython==6.0.0
-jupyter==1.0.0
-matplotlib==2.0.0
-numpy==1.12.1
-robotpy-hal-sim==2017.1.2
+ipython
+jupyter
+matplotlib
+numpy
+pyfrc
+frc3223-azurite
+robotpy-pathfinder
+slycot
+control
+frccontrol

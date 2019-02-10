@@ -88,9 +88,6 @@ class ElevatorSimulation:
             elif force < 0:
                 force += self.friction_force
 
-
-
-        #print ('force:' , force)
         a = force / (gravity_force / g)
         return a
 

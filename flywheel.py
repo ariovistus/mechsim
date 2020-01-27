@@ -1,7 +1,5 @@
 import math
-#import wpilib
 import numpy
-from hal_impl.sim_hooks import SimHooks as BaseSimHooks
 from frc3223_azurite.motors import *
 from utils import *
 
